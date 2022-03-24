@@ -1,5 +1,3 @@
-from asyncio.windows_events import NULL
-from logging import NullHandler
 from socket import *
 import sys
 import threading
@@ -49,9 +47,8 @@ class TCP_socket:
 
    def recv(self):
       data = self.socket.recv(2046)
-      print(data)
+      print(len(data))
       data_tok = data.split(b"\n")
-      print(data_tok)
       data_length = int(data_tok[2][18:])
       data_offset = int(data_tok[1][27:])
       data = data.split(b"\n\n")
