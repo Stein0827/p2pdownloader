@@ -46,8 +46,11 @@ class TCP_socket:
       self.socket.send(get_command.encode())
 
    def recv(self):
-      data = self.socket.recv(2046)
-      print(len(data))
+      data = b''
+
+      while b'\n\n' not in data:
+         data += self.socket.recv(2046)
+      
       data_tok = data.split(b"\n")
       data_length = int(data_tok[2][18:])
       data_offset = int(data_tok[1][27:])
@@ -90,7 +93,7 @@ def main():
       data[temp[1]] = temp[0]
       download_socket.close()
 
-   print(len(data))
+      print(data)
 
 main()
 sys.exit(0)
