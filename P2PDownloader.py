@@ -1,21 +1,25 @@
+from asyncio.windows_events import NULL
+from logging import NullHandler
 from socket import *
 import sys
+import threading
 
 class UDP_socket:
-   def __init__(self, file_name, serverName, serverPort) -> None:
-      self.file_name = file_name
-      self.serverName = serverName
-      self.serverPort = serverPort
+   def __init__(self):
+      self.file_name = str(sys.argv[1])
+      self.serverName = str(sys.argv[2])
+      self.serverPort = int(sys.argv[3])
+      self.get_command = "GET " + self.file_name + ".torrent" + "\n"
       self.socket = None
       
    def socket_init(self):
       self.socket = socket(AF_INET, SOCK_DGRAM) 
 
-   def send(self, get_command):
-      self.socket.sendto(get_command.encode(), (self.serverName, self.serverPort))
+   def send(self):
+      self.socket.sendto(self.get_command.encode(), (self.serverName, self.serverPort))
    
    def recv(self):
-      return self.socket.recvfrom(2048)
+      return self.socket.recvfrom(500)
 
    def get_ip(self):
       return gethostbyname(self.serverName)
@@ -23,20 +27,74 @@ class UDP_socket:
    def close(self):
       self.socket.close()
 
+
+class TCP_socket:
+   def __init__(self, file_name, serverName, serverPort):
+      self.file_name = file_name
+      self.serverName = serverName
+      self.serverPort = serverPort
+
+   def socket_init(self):
+      self.socket = socket(AF_INET, SOCK_STREAM)
    
-serverName = str(sys.argv[2])
-serverPort = int(sys.argv[3])
-file_name = str(sys.argv[1])
-get_command = "GET " + file_name + ".torrent" + "\n"
+   def get_block(self, is_num):
+      get_command = str()
+      if is_num:
+         get_command = "GET " + self.file_name + ":" + str(self.block_number) + "\n"
+      else:
+         get_command = "GET " + self.file_name + ":*" + "\n"
+      
+      self.socket.connect((self.serverName, self.serverPort))
+      self.socket.send(get_command.encode())
 
-udp_socket = UDP_socket(file_name, serverName, serverPort)
-udp_socket.socket_init()
-udp_socket.send(get_command)
-test = udp_socket.recv()
-udp_socket.close()
+   def recv(self):
+      data = self.socket.recv(2046)
+      print(data)
+      data_tok = data.split(b"\n")
+      print(data_tok)
+      data_length = int(data_tok[2][18:])
+      data_offset = int(data_tok[1][27:])
+      data = data.split(b"\n\n")
+      block_data = data[1]
+      data_length -= len(block_data)
 
-# clientSocket = socket(AF_INET, SOCK_DGRAM)
-# clientSocket.sendto(get_command.encode(), (serverName, serverPort))
-# test = clientSocket.recvfrom(2048)
-# print(type(test))
-# print(test)
+      while data_length > 0:
+         data = self.socket.recv(2046)
+         block_data += data
+         data_length -= len(data)
+
+      return (block_data, data_offset)
+   
+   def close(self):
+      self.socket.close()
+
+
+
+def main():
+   udp_socket = UDP_socket()
+   udp_socket.socket_init()
+   udp_socket.send()
+
+   msg, serverAddress = udp_socket.recv()
+   meta_data = str.split(msg.decode(), "\n")
+
+   block_num = int(meta_data[0][12:])
+   file_size = int(meta_data[1][11:])
+   peers = {(meta_data[2][5:], int(meta_data[3][7:])), (meta_data[4][5:], int(meta_data[5][7:]))}  
+
+   udp_socket.close()
+   
+   data = dict()
+   for curr in peers:
+      download_socket = TCP_socket(udp_socket.file_name, curr[0], curr[1])
+      download_socket.socket_init()
+      download_socket.get_block(False)
+      temp = download_socket.recv()
+      data[temp[1]] = temp[0]
+      download_socket.close()
+
+   print(len(data))
+
+main()
+sys.exit(0)
+
