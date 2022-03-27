@@ -22,6 +22,13 @@ class UDP_socket:
    def get_ip(self):
       return gethostbyname(self.serverName)
 
+   def get_metadata(self, msg):
+      meta_data = str.split(msg.decode(), "\n")
+      num_blocks = int(meta_data[0][12:])
+      file_size = int(meta_data[1][11:])
+      peers = {(meta_data[2][5:], int(meta_data[3][7:])), (meta_data[4][5:], int(meta_data[5][7:]))}
+      return (num_blocks, file_size, peers)
+
    def close(self):
       self.socket.close()
 
@@ -71,29 +78,17 @@ class TCP_socket:
 
 
 def main():
+   #TODO: PRIORITY Set UDP Timeout
    udp_socket = UDP_socket()
    udp_socket.socket_init()
    udp_socket.send()
 
    msg, serverAddress = udp_socket.recv()
-   meta_data = str.split(msg.decode(), "\n")
 
-   block_num = int(meta_data[0][12:])
-   file_size = int(meta_data[1][11:])
-   peers = {(meta_data[2][5:], int(meta_data[3][7:])), (meta_data[4][5:], int(meta_data[5][7:]))}  
+   num_blocks, file_size, peers = udp_socket.get_metadata(msg)
 
    udp_socket.close()
    
-   data = dict()
-   for curr in peers:
-      download_socket = TCP_socket(udp_socket.file_name, curr[0], curr[1])
-      download_socket.socket_init()
-      download_socket.get_block(False)
-      temp = download_socket.recv()
-      data[temp[1]] = temp[0]
-      download_socket.close()
-
-      print(data)
 
 main()
 sys.exit(0)
