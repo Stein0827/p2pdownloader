@@ -1,6 +1,10 @@
+from gc import collect
 from socket import *
 import sys
 import threading
+from matplotlib import image
+
+from numpy import block
 
 class UDP_socket:
    def __init__(self):
@@ -17,14 +21,13 @@ class UDP_socket:
       self.socket.sendto(self.get_command.encode(), (self.serverName, self.serverPort))
    
    def recv(self):
-      self.socket.settimeout(0.5)
+      self.socket.settimeout(5)
       try:
          data = self.socket.recvfrom(500)
          return data
       except timeout:
          self.send()
          self.recv()
-
 
    def get_ip(self):
       return gethostbyname(self.serverName)
@@ -60,40 +63,38 @@ class TCP_socket:
       self.socket.send(get_command.encode())
 
    #TODO PRIORITY: Handle TCP Server disconnection while downloading
-   def recv(self):
+   def recv(self, block_number=None):
       data = b''
-      print("in recv")
 
       #UNDESTANDING: Collect header file until body of bytes starts
       while b'\n\n' not in data:
-         self.socket.settimeout(1)
+         self.socket.settimeout(5)
          try:
-            data += self.socket.recv(2046)
+            data += self.socket.recv(512)
          except timeout:
-            print("timed out")
+            self.socket.close()
+            self.socket_init()
+            self.get_block(block_number)
             self.recv()
       
       data_tok = data.split(b"\n")
-      print(data_tok)
       data_length = int(data_tok[2][18:])
       data_offset = int(data_tok[1][26:])
       data = data.split(b"\n\n")
       block_data = data[1]
       data_length -= len(block_data)
-      # print("***TCP REQUEST*** " + str(data[0]))
 
       while data_length > 0:
-         data = self.socket.recv(2046)
+         data = self.socket.recv(512)
          block_data += data
          data_length -= len(data)
       
-      print(len(block_data))
-      print(data_length)
 
       return (block_data, data_offset)
    
    def close(self):
       self.socket.close()
+
 
 def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, num_blocks):
    global collected_blocks, missing_blocks, active_peers
@@ -102,6 +103,8 @@ def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, nu
       mblocks_lock.acquire()
       if missing_blocks:
          curr_block = missing_blocks.pop()
+      else:
+         break
       mblocks_lock.release()
 
 
@@ -110,16 +113,22 @@ def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, nu
       tcp_socket = TCP_socket(server_address, server_port)
       tcp_socket.socket_init()
 
-      print("before get block")
       tcp_socket.get_block(curr_block)
-      print("after get block")
-      print("before recv")
-      block_data, data_offset = tcp_socket.recv() #TODO: Needs to download disconnection and request disconnectoin
-      print("after recv")
+      block_data, data_offset = tcp_socket.recv(curr_block) #TODO: Needs to download disconnection and request disconnectoin
 
       cblocks_lock.acquire()
-      collected_blocks[num_blocks] = block_data
+      collected_blocks[curr_block] = block_data
       cblocks_lock.release()
+
+
+def block_to_image(collected_blocks: dict, image_name: str):
+   data = b''
+   for block in sorted(collected_blocks):
+      data += collected_blocks[block]
+
+   image_file = open(image_name, 'wb')
+   image_file.write(data)
+   image_file.close()
 
 
 def main():
@@ -128,11 +137,9 @@ def main():
    udp_socket.socket_init()
    udp_socket.send()
    msg, serverAddress = udp_socket.recv()
-   print(msg, serverAddress)
 
    #TODO: Create get_tracker_data for UDP class
    num_blocks, file_size, peers_set = udp_socket.get_metadata(msg)
-   print(num_blocks, file_size, peers_set)
 
    global collected_blocks, missing_blocks, active_peers
    active_peers = set()
@@ -160,6 +167,7 @@ def main():
          thread.join()
 
    udp_socket.close()
+   block_to_image(collected_blocks, udp_socket.file_name)
    
 
 main()
