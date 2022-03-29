@@ -22,7 +22,7 @@ class UDP_socket:
       try:
          data = self.socket.recvfrom(500)
          if data != None:
-            print(data)
+            print("this is the data inside udp recv: ", data)
             return data
          else:
             self.send()
@@ -110,19 +110,19 @@ class TCP_socket:
 def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, num_blocks):
    global collected_blocks, missing_blocks, active_peers, peers_set
    
-   udp_socket = UDP_socket()
-   udp_socket.send()
-   msg = udp_socket.recv()
-   print(msg)
-   udp_socket.close()
+   # udp_socket = UDP_socket()
+   # udp_socket.send()
+   # msg = udp_socket.recv()
+   # print("this is the msg: ", msg)
+   # udp_socket.close()
    
-   if msg != None:
-      num_blocks, file_size, temp_peers = udp_socket.get_metadata(msg[0])
-      print("In threads: {}", temp_peers)
-      ap_lock.acquire()
-      for peer in temp_peers:
-         peers_set.add(peer)
-      ap_lock.release()
+   # if msg != None:
+   #    num_blocks, file_size, temp_peers = udp_socket.get_metadata(msg[0])
+   #    print("In threads: ", temp_peers)
+   #    ap_lock.acquire()
+   #    for peer in temp_peers:
+   #       peers_set.add(peer)
+   #    ap_lock.release()
       
    while len(collected_blocks) != num_blocks:
       mblocks_lock.acquire()
@@ -173,6 +173,7 @@ def main():
    udp_socket = UDP_socket()
    udp_socket.send()
    msg = udp_socket.recv()
+   print("msg in main: ", type(msg))
    while msg == None:
       udp_socket.send()
       msg = udp_socket.recv()
@@ -183,11 +184,10 @@ def main():
       peers_set.add(elem)
    
    udp_socket.close()
-   
+
 
    thread_arr = []
    while peers_set:
-      print(peers_set)
       popped_peer = peers_set.pop()
       if popped_peer not in active_peers:
          active_peers.add(popped_peer)
@@ -200,7 +200,7 @@ def main():
       
    block_to_image(collected_blocks, udp_socket.file_name)
    end = timer()
-   print(end-start)
+   print("download time: ", end-start)
 
    
 main()
