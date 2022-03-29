@@ -1,6 +1,7 @@
 from socket import *
 import sys
 import threading
+from timeit import default_timer as timer
 
 class UDP_socket:
    def __init__(self):
@@ -8,19 +9,24 @@ class UDP_socket:
       self.serverName = str(sys.argv[2])
       self.serverPort = int(sys.argv[3])
       self.get_command = "GET " + self.file_name + ".torrent" + "\n"
-      self.socket = None
+      self.socket = self.socket_init()
       
    def socket_init(self):
-      self.socket = socket(AF_INET, SOCK_DGRAM) 
+      return socket(AF_INET, SOCK_DGRAM) 
 
    def send(self):
       self.socket.sendto(self.get_command.encode(), (self.serverName, self.serverPort))
    
    def recv(self):
-      self.socket.settimeout(5)
+      self.socket.settimeout(3)
       try:
          data = self.socket.recvfrom(500)
-         return data
+         if data != None:
+            print(data)
+            return data
+         else:
+            self.send()
+            self.recv()
       except timeout:
          self.send()
          self.recv()
@@ -44,9 +50,10 @@ class TCP_socket:
       self.file_name = str(sys.argv[1])
       self.serverName = serverName
       self.serverPort = serverPort
+      self.socket = self.socket_init()
 
    def socket_init(self):
-      self.socket = socket(AF_INET, SOCK_STREAM)
+      return socket(AF_INET, SOCK_STREAM)
    
    def get_block(self, block_number=None):
       get_command = str()
@@ -69,7 +76,7 @@ class TCP_socket:
             data += self.socket.recv(512)
          except timeout:
             self.socket.close()
-            self.socket_init()
+            self.socket = self.socket_init()
             self.get_block(block_number)
             self.recv()
       
@@ -78,12 +85,20 @@ class TCP_socket:
       data_offset = int(data_tok[1][26:])
       data = data.split(b"\n\n")
       block_data = data[1]
+      print(data[0])
       data_length -= len(block_data)
 
       while data_length > 0:
-         data = self.socket.recv(512)
-         block_data += data
-         data_length -= len(data)
+         self.socket.settimeout(5)
+         try:
+            data = self.socket.recv(512)
+            block_data += data
+            data_length -= len(data)
+         except timeout:
+            self.socket.close()
+            self.socket = self.socket_init()
+            self.get_block(block_number)
+            self.recv()
       
 
       return (block_data, data_offset)
@@ -93,21 +108,33 @@ class TCP_socket:
 
 
 def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, num_blocks):
-   global collected_blocks, missing_blocks, active_peers
-
+   global collected_blocks, missing_blocks, active_peers, peers_set
+   
+   udp_socket = UDP_socket()
+   udp_socket.send()
+   msg = udp_socket.recv()
+   udp_socket.close()
+   
+   if msg != None:
+      num_blocks, file_size, temp_peers = udp_socket.get_metadata(msg[0])
+      print("In threads: {}", temp_peers)
+      ap_lock.acquire()
+      for peer in temp_peers:
+         peers_set.add(peer)
+      ap_lock.release()
+      
    while len(collected_blocks) != num_blocks:
       mblocks_lock.acquire()
       if missing_blocks:
          curr_block = missing_blocks.pop()
+         print(curr_block)
       else:
          break
       mblocks_lock.release()
 
-
       server_address = peer[0]
       server_port = peer[1]
       tcp_socket = TCP_socket(server_address, server_port)
-      tcp_socket.socket_init()
 
       tcp_socket.get_block(curr_block)
       block_data, data_offset = tcp_socket.recv(curr_block) #TODO: Needs to download disconnection and request disconnectoin
@@ -116,54 +143,57 @@ def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, nu
       collected_blocks[curr_block] = block_data
       cblocks_lock.release()
 
+   tcp_socket.close()
+
 
 def block_to_image(collected_blocks: dict, image_name: str):
-   data = b''
-   for block in sorted(collected_blocks):
-      data += collected_blocks[block]
-
    image_file = open(image_name, 'wb')
-   image_file.write(data)
+   for block in sorted(collected_blocks):
+      image_file.write(collected_blocks[block])
    image_file.close()
 
 
 def main():
-   #TODO: PRIORITY Set UDP Timeout
-   udp_socket = UDP_socket()
-   udp_socket.socket_init()
-   udp_socket.send()
-   msg, serverAddress = udp_socket.recv()
+   start = timer()
 
-   #TODO: Create get_tracker_data for UDP class
-   num_blocks, file_size, peers_set = udp_socket.get_metadata(msg)
-
-   global collected_blocks, missing_blocks, active_peers
+   global collected_blocks, missing_blocks, active_peers, peers_set
    active_peers = set()
    ap_lock = threading.Lock()
    collected_blocks = dict()
    cblocks_lock = threading.Lock()
-   missing_blocks = [*range(num_blocks)]
    mblocks_lock = threading.Lock()
+   peers_set = set()
 
-   while len(collected_blocks) != num_blocks:
-      # udp_socket.send()
-      # msg, serverAddress = udp_socket.recv()
-      # print(msg, serverAddress)
-      # num_blocks, file_size, peers_set = udp_socket.get_metadata(msg)
-      thread_arr = []
-
-      for peer in peers_set:
-         if peer not in active_peers:
-            active_peers.add(peer)
-            curr_thread = threading.Thread(target=tcp_thread_requests, args=(cblocks_lock, mblocks_lock, ap_lock, udp_socket.file_name, peer, num_blocks))
-            thread_arr.append(curr_thread)
-            curr_thread.start()
-
-      for thread in thread_arr:
-         thread.join()
-
+   #TODO: PRIORITY Set UDP Timeout
+   udp_socket = UDP_socket()
+   udp_socket.send()
+   msg = udp_socket.recv()
    udp_socket.close()
+
+   #TODO: Create get_tracker_data for UDP class
+   if msg != None:
+      num_blocks, file_size, temp_set = udp_socket.get_metadata(msg[0])
+      missing_blocks = [*range(num_blocks)]
+      for elem in temp_set:
+         peers_set.add(elem)
+   
+   print(peers_set)
+   thread_arr = []
+   while peers_set:
+      popped_peer = peers_set.pop()
+      if popped_peer not in active_peers:
+         active_peers.add(popped_peer)
+         curr_thread = threading.Thread(target=tcp_thread_requests, args=(cblocks_lock, mblocks_lock, ap_lock, udp_socket.file_name, popped_peer, num_blocks))
+         thread_arr.append(curr_thread)
+         curr_thread.start()
+
+   for thread in thread_arr:
+      thread.join()
+      
    block_to_image(collected_blocks, udp_socket.file_name)
+   end = timer()
+   print(end-start)
+
    
 
 main()
