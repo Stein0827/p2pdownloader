@@ -113,6 +113,7 @@ def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, nu
    udp_socket = UDP_socket()
    udp_socket.send()
    msg = udp_socket.recv()
+   print(msg)
    udp_socket.close()
    
    if msg != None:
@@ -127,7 +128,6 @@ def tcp_thread_requests(cblocks_lock, mblocks_lock, ap_lock, file_name, peer, nu
       mblocks_lock.acquire()
       if missing_blocks:
          curr_block = missing_blocks.pop()
-         print(curr_block)
       else:
          break
       mblocks_lock.release()
@@ -164,22 +164,30 @@ def main():
    mblocks_lock = threading.Lock()
    peers_set = set()
 
-   #TODO: PRIORITY Set UDP Timeout
+   # if msg != None:
+   #    num_blocks, file_size, temp_set = udp_socket.get_metadata(msg[0])
+   #    missing_blocks = [*range(num_blocks)]
+   #    for elem in temp_set:
+   #       peers_set.add(elem)
+   
    udp_socket = UDP_socket()
    udp_socket.send()
    msg = udp_socket.recv()
-   udp_socket.close()
+   while msg == None:
+      udp_socket.send()
+      msg = udp_socket.recv()
 
-   #TODO: Create get_tracker_data for UDP class
-   if msg != None:
-      num_blocks, file_size, temp_set = udp_socket.get_metadata(msg[0])
-      missing_blocks = [*range(num_blocks)]
-      for elem in temp_set:
-         peers_set.add(elem)
+   num_blocks, file_size, temp_set = udp_socket.get_metadata(msg[0])
+   missing_blocks = [*range(num_blocks)]
+   for elem in temp_set:
+      peers_set.add(elem)
    
-   print(peers_set)
+   udp_socket.close()
+   
+
    thread_arr = []
    while peers_set:
+      print(peers_set)
       popped_peer = peers_set.pop()
       if popped_peer not in active_peers:
          active_peers.add(popped_peer)
@@ -195,6 +203,5 @@ def main():
    print(end-start)
 
    
-
 main()
 sys.exit(0)
