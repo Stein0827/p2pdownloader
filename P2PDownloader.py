@@ -1,10 +1,6 @@
-from gc import collect
 from socket import *
 import sys
 import threading
-from matplotlib import image
-
-from numpy import block
 
 class UDP_socket:
    def __init__(self):
