@@ -1,3 +1,4 @@
+from gc import collect
 from socket import *
 import sys
 import threading
